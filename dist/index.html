@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="ru" class="is-locked">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Uzbekistan Airways Technics — техническое обслуживание и ремонт ВС</title>
+    <meta name="description" content="Uzbekistan Airways Technics — ведущий поставщик услуг по техническому обслуживанию и ремонту воздушных судов в Центральной Азии. EASA Part-145." />
+    <meta name="theme-color" content="#f5f4f0" />
+    <link rel="icon" href="/favicon.png" type="image/png" />
+    <link rel="apple-touch-icon" href="/favicon.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Sans+Condensed:wght@500;600;700&display=swap" rel="stylesheet" />
+    <!-- Критический CSS: до загрузки JS/стилей видна только заставка, без «вспышки» голого HTML -->
+    <style>html,body{background:#f5f4f0;margin:0}html:not(.css-ready) body>:not(#loader){visibility:hidden}#loader{z-index:100;background:#f5f4f0;place-items:center;display:grid;position:fixed;inset:0}.loader__inner{gap:10px;width:min(420px,100vw - 48px);display:grid}.loader__logo{justify-self:start;width:auto;height:64px;margin-bottom:18px}.loader__row{color:#0f1722;letter-spacing:.06em;text-transform:uppercase;justify-content:space-between;font:11px/1.5 IBM Plex Mono,ui-monospace,monospace;display:flex}.loader__row--muted{color:#6b7482}.loader__bar{background:#d9d6cd;height:2px;overflow:hidden}.loader__bar i{transform-origin:0;background:#0f1722;height:100%;display:block;transform:scaleX(0)}</style>
+    <script type="module" crossorigin src="/assets/index-CGW6Xcx_.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-h4pLfsKk.css">
+  </head>
+  <body>
+    <!-- Загрузка -->
+    <div id="loader">
+      <div class="loader__inner">
+        <img class="loader__logo" src="/logo-uat.png" width="190" height="64" alt="Uzbekistan Airways Technics" />
+        <div class="loader__row"><span>UZBEKISTAN AIRWAYS TECHNICS</span><span class="loader__pct">0%</span></div>
+        <div class="loader__bar"><i></i></div>
+        <div class="loader__row loader__row--muted"><span>ПОДГОТОВКА ВОЗДУШНОГО СУДНА</span><span>UK32021</span></div>
+      </div>
+    </div>
+
+    <canvas id="webgl"></canvas>
+    <div id="veil"></div>
+
+    <!-- Навигация -->
+    <header class="nav">
+      <a class="brand" href="#" data-top aria-label="Uzbekistan Airways Technics">
+        <img class="brand__logo" src="/logo-uat.png" alt="UAT — Uzbekistan Airways Technics" />
+        <span class="brand__name">Uzbekistan Airways<b>Technics</b></span>
+      </a>
+      <nav class="nav__links" id="nav-links">
+        <a href="#services" data-goto>Услуги</a>
+        <a href="#about" data-goto>О компании</a>
+        <a href="#certs" data-goto>Сертификаты</a>
+        <a href="#contacts" data-goto>Контакты</a>
+      </nav>
+      <div class="nav__right">
+        <span class="lang">RU</span>
+        <a class="btn btn--sm" href="#contacts" data-goto>Связаться</a>
+        <button class="nav__menu" id="nav-menu" aria-label="Меню" aria-expanded="false"><i></i><i></i></button>
+      </div>
+    </header>
+
+    <nav class="rail" id="rail" aria-label="Этапы"></nav>
+
+    <!-- Телеметрия -->
+    <div class="hud" id="hud">
+      <div class="hud__head"><span>UK32021</span><span>A320neo</span></div>
+      <dl class="hud__grid">
+        <dt>ALT</dt><dd id="h-alt">1 250 FT</dd>
+        <dt>GS</dt><dd id="h-gs">140 KT</dd>
+        <dt>CHK</dt><dd id="h-chk">0 / 8</dd>
+      </dl>
+      <div class="hud__st" id="h-st">ФИНАЛЬНЫЙ ЗАХОД · RWY 08</div>
+    </div>
+
+    <button class="skip" id="skip">Пропустить интро</button>
+
+    <!-- Сцены -->
+    <section class="ov card hero" data-range="-1,0.024">
+      <div class="card__head"><span>MRO</span><span>Ташкент</span><span>EASA Part-145</span></div>
+      <h1 class="hero__title">Uzbekistan Airways <span>Technics</span></h1>
+      <p class="hero__lead">Ведущий поставщик услуг по техническому обслуживанию и ремонту воздушных судов в Центральной Азии. Более 100 лет опыта.</p>
+      <div class="hero__cta">
+        <a class="btn" href="#services" data-goto>Наши услуги</a>
+        <span class="hero__hint">Прокрутите вниз — самолёт отправится на ТО</span>
+      </div>
+    </section>
+
+    <div class="ov scroll-cue" data-range="-1,0.02"><span></span>Прокрутите</div>
+
+    <section class="ov card story story--left" data-range="0.042,0.068">
+      <div class="card__head"><span>01</span><span>Ангарный комплекс</span></div>
+      <h2>41 122 м² — пять широкофюзеляжных самолётов одновременно</h2>
+      <p>Ремонтный комплекс примыкает к Международному аэропорту Ташкент имени Ислама Каримова.</p>
+    </section>
+
+    <section class="ov card story story--right" data-range="0.17,0.214">
+      <div class="card__head"><span>02</span><span>Приёмка воздушного судна</span></div>
+      <h2>Свет включён. Команда на месте.</h2>
+      <p>Более 500 специалистов с допусками EASA Part-66 принимают самолёт на обслуживание.</p>
+    </section>
+
+    <section class="ov card story story--center" data-range="0.22,0.27">
+      <div class="card__head"><span>03</span><span>Декомпозиция</span></div>
+      <h2>Каждая система — отдельная проверка</h2>
+      <p>Восемь зон инспекции, сотни контрольных точек, ноль компромиссов.</p>
+    </section>
+
+    <div class="labels" id="labels"></div>
+
+    <aside class="ov card icard" id="icard" data-range="0.272,0.858">
+      <div class="card__head"><span>Карта-наряд</span><span class="icard__code">ATA 72</span><span class="icard__idx">01 / 08</span></div>
+      <h3 class="icard__title">Силовая установка</h3>
+      <p class="icard__svc">ТО двигателей</p>
+      <p class="icard__desc"></p>
+      <ul class="icard__checks"></ul>
+      <div class="icard__foot">
+        <div class="icard__progress"><i></i></div>
+        <p class="icard__status">Подготовка</p>
+      </div>
+    </aside>
+
+    <aside class="ov card checklist" id="checklist" data-range="0.218,0.87">
+      <div class="card__head"><span>C-check</span><span>UK32021</span></div>
+      <div class="checklist__total"><b><span id="cl-pct">0</span><small>%</small></b><span>выполнено</span></div>
+      <div class="checklist__bar"><i id="cl-bar"></i></div>
+      <ol id="checklist-list"></ol>
+    </aside>
+
+    <section class="ov badge" data-range="0.855,0.893">
+      <div class="stamp">
+        <span class="stamp__top">EASA Part-145 · UK32021</span>
+        <span class="stamp__main">Допущен<br />к эксплуатации</span>
+        <span class="stamp__bottom">Certificate of Release to Service</span>
+      </div>
+      <p class="badge__note">Все 8 систем проверены · 0 замечаний</p>
+    </section>
+
+    <section class="ov card stats" data-range="0.893,0.93">
+      <div class="card__head"><span>Uzbekistan Airways Technics</span><span>в цифрах</span></div>
+      <div class="stats__grid" id="stats-grid"></div>
+    </section>
+
+    <section class="ov card slogan" data-range="0.958,1.02">
+      <p class="slogan__text">Наша работа на земле — <span>Ваша уверенность и безопасность в небе.</span></p>
+    </section>
+
+    <div id="track"></div>
+
+    <!-- Основной контент -->
+    <main class="content" id="content">
+      <section class="sec" id="services">
+        <header class="sec__head">
+          <span class="sec__no">§ 01</span>
+          <h2>Полный цикл MRO — от линейного ТО до покраски</h2>
+        </header>
+        <ol class="services" id="services-grid"></ol>
+      </section>
+
+      <section class="sec" id="about">
+        <header class="sec__head">
+          <span class="sec__no">§ 02</span>
+          <h2>Подразделение АО «Uzbekistan Airways»</h2>
+        </header>
+        <div class="about">
+          <div class="about__text">
+            <p>ООО «Uzbekistan Airways Technics» — ведущий поставщик услуг по техническому обслуживанию и ремонту в Центральной Азии. Ангары ремонтного комплекса площадью 41 122 м² одновременно вмещают пять широкофюзеляжных воздушных судов.</p>
+            <p>Более 50 000 выполненных операций для 100 авиакомпаний.</p>
+          </div>
+          <div class="about__fleet">
+            <span class="label">Типы воздушных судов</span>
+            <ul class="fleet" id="fleet"></ul>
+            <p class="small">А также двигатели и компоненты различной сложности.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="sec" id="certs">
+        <header class="sec__head">
+          <span class="sec__no">§ 03</span>
+          <h2>Работаем по европейским и международным нормам</h2>
+        </header>
+        <div class="certs" id="certs-grid"></div>
+      </section>
+
+      <section class="sec" id="contacts">
+        <header class="sec__head">
+          <span class="sec__no">§ 04</span>
+          <h2>Отправьте ваш самолёт на ТО</h2>
+        </header>
+        <dl class="contact">
+          <div><dt>Адрес</dt><dd>Республика Узбекистан, г. Ташкент, Сергелийский район, ул. Кумарык, 2а</dd></div>
+          <div><dt>Телефон</dt><dd><a href="tel:+998555031620">+998 55 503 16 20</a></dd></div>
+          <div><dt>Email</dt><dd><a href="mailto:uat@uzairways.com">uat@uzairways.com</a><br /><a href="mailto:office.uat@uzairways.com">office.uat@uzairways.com</a></dd></div>
+          <div><dt>График</dt><dd>Пн–Пт, 9:00–18:00</dd></div>
+        </dl>
+      </section>
+
+      <footer class="footer">
+        <img class="footer__logo" src="/logo-uat.png" alt="UAT — Uzbekistan Airways Technics" />
+        <span>© 2026 Uzbekistan Airways Technics</span>
+        <span>Наша работа на земле — Ваша уверенность и безопасность в небе!</span>
+      </footer>
+    </main>
+
+  </body>
+</html>
