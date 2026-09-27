@@ -117,8 +117,16 @@ export const INTRO = { TA: 4.6, TR: 4.4 };
 INTRO.total = INTRO.TA + INTRO.TR;
 
 export const HERO_VIEW = { pos: V(30, 5, 52), tgt: V(-22, 5, -4), fov: 36 };
+// телефон (портретный экран): самолёт ближе и в три четверти с носа — так он крупнее на узком экране
+export const HERO_VIEW_PORTRAIT = { pos: V(33, 5.5, 30), tgt: V(0, 3.6, 0), fov: 36 };
+// на портретном экране карточки занимают низ — цель камеры опускается, объект поднимается в кадре
+export const PORTRAIT_LIFT = 0.14;
+export const liftTarget = (view) => {
+  view.tgt.y -= view.pos.distanceTo(view.tgt) * PORTRAIT_LIFT;
+  return view;
+};
 
-export function introState(t) {
+export function introState(t, portrait = false) {
   const { TA, TR } = INTRO;
   const s = { pos: V(), pitch: 0, roll: 0, groundDist: 0, speed: 0, alt: 0, phase: 'approach' };
   if (t < TA) {
@@ -149,9 +157,11 @@ export function introState(t) {
     cam = { pos: c0.clone().lerp(c1, smooth(t / tc)), tgt: follow, fov: 30 };
   } else {
     const k = ease(clamp01((t - tc) / (INTRO.total - tc)));
+    // интро заканчивается ровно в первом кадре скролла — без доводки камеры после него
+    const H = portrait ? liftTarget({ pos: HERO_VIEW_PORTRAIT.pos.clone(), tgt: HERO_VIEW_PORTRAIT.tgt.clone() }) : HERO_VIEW;
     cam = {
-      pos: c1.clone().lerp(HERO_VIEW.pos, k),
-      tgt: follow.clone().lerp(HERO_VIEW.tgt, smooth(k)),
+      pos: c1.clone().lerp(H.pos, k),
+      tgt: follow.clone().lerp(H.tgt, smooth(k)),
       fov: lerp(30, HERO_VIEW.fov, k),
     };
   }
@@ -163,18 +173,31 @@ export function introState(t) {
 export function buildShots(ac) {
   const tmp = V();
   // на портретных экранах самолёт по центру (текст внизу), на широких — справа от текста
-  const hero = (c) => ({ pos: HERO_VIEW.pos.clone(), tgt: c.portrait ? V(-2, 4, -2) : HERO_VIEW.tgt.clone(), fov: HERO_VIEW.fov });
+  const hero = (c) => {
+    const H = c.portrait ? HERO_VIEW_PORTRAIT : HERO_VIEW;
+    return { pos: H.pos.clone(), tgt: H.tgt.clone(), fov: H.fov };
+  };
+  // портретный экран узкий: общие планы снимаются ближе, иначе самолёт мелкий
+  const portrait = (wideFn, narrowFn) => (c) => (c.portrait ? narrowFn(c) : wideFn(c));
+  // та же линия взгляда, камера на долю k расстояния от цели
+  const closer = (fn, k) => (c) => {
+    const v = fn(c);
+    if (c.portrait) v.pos.lerpVectors(v.tgt, v.pos, k);
+    return v;
+  };
   // общий план руления: камера отъезжает, в кадре весь путь до ангара; цель слегка ведёт самолёт
   const wide = (pos, fix, follow, fov) => (c) => ({
     pos: pos.clone(),
     tgt: fix.clone().lerp(c.plane.clone().add(V(0, 4, 0)), follow),
     fov,
   });
-  const taxiWide = wide(V(118, 34, 70), V(38, 6, -52), 0.35, 42);
-  const taxiDoor = wide(V(104, 24, 8), V(58, 8, -100), 0.25, 42);
-  const door = () => ({ pos: V(84, 13, -94), tgt: V(58, 5, -165), fov: 44 });
-  const interior = () => ({ pos: V(112, 22, -112), tgt: V(58, 5, -166), fov: 44 });
-  const overview = () => ({ pos: V(117, 21, -109), tgt: V(58, 8, -163), fov: 54 }); // ниже ферм покрытия (y≈29.8)
+  // в портрете камера едет рядом с самолётом: общий план всего пути на узком экране делает его точкой
+  const chase = (off, fov) => (c) => ({ pos: c.plane.clone().add(off), tgt: c.plane.clone().add(V(0, 4, 0)), fov });
+  const taxiWide = portrait(wide(V(118, 34, 70), V(38, 6, -52), 0.35, 42), chase(V(34, 13, 36), 42));
+  const taxiDoor = portrait(wide(V(104, 24, 8), V(58, 8, -100), 0.25, 42), chase(V(30, 11, 40), 42));
+  const door = closer(() => ({ pos: V(84, 13, -94), tgt: V(58, 5, -165), fov: 44 }), 0.75);
+  const interior = closer(() => ({ pos: V(112, 22, -112), tgt: V(58, 5, -166), fov: 44 }), 0.72);
+  const overview = closer(() => ({ pos: V(117, 21, -109), tgt: V(58, 8, -163), fov: 54 }), 0.86); // ниже ферм покрытия (y≈29.8)
   const sys = (id) => () => {
     const a = ac.anchorWorld(id, V());
     const o = ac.localToWorldDir(tmp.set(...SYSTEM_VIEW[id].offset), V()).multiplyScalar(SYSTEM_VIEW[id].dist ?? 1.5);
@@ -182,10 +205,11 @@ export function buildShots(ac) {
     tgt.y += SYSTEM_VIEW[id].tgtY ?? 0;
     return { pos: a.clone().add(o), tgt, fov: 42 };
   };
-  const side = () => ({ pos: V(110, 17, -170), tgt: V(60, 5, -162), fov: 44 });
-  const side2 = () => ({ pos: V(106, 12, -148), tgt: V(60, 5, -163), fov: 42 });
-  const front1 = () => ({ pos: V(76, 4.6, -198), tgt: V(56, 6.5, -160), fov: 44 });
-  const front2 = () => ({ pos: V(47, 3.4, -200), tgt: V(64, 7, -150), fov: 42 });
+  // в портрете вместо вида сбоку (самолёт во всю длину) — три четверти с носа
+  const side = portrait(() => ({ pos: V(110, 17, -170), tgt: V(60, 5, -162), fov: 44 }), () => ({ pos: V(90, 10.5, -186), tgt: V(60, 5, -164), fov: 44 }));
+  const side2 = portrait(() => ({ pos: V(106, 12, -148), tgt: V(60, 5, -163), fov: 42 }), () => ({ pos: V(84, 7.5, -190), tgt: V(60, 5, -164), fov: 42 }));
+  const front1 = closer(() => ({ pos: V(76, 4.6, -198), tgt: V(56, 6.5, -160), fov: 44 }), 0.88);
+  const front2 = closer(() => ({ pos: V(47, 3.4, -200), tgt: V(64, 7, -150), fov: 42 }), 0.88);
   // камера у носа при буксировке: выезжает из ангара вместе с самолётом
   const pushCam = (c) => ({
     pos: c.plane.clone().add(ac.localToWorldDir(tmp.set(30, 6, -11), V())),
@@ -195,7 +219,8 @@ export function buildShots(ac) {
   const takeoff = (c) => ({
     pos: V(60, 3.4, 40),
     tgt: c.plane.clone().add(V(0, 4, 0)),
-    fov: lerp(40, 17, smooth(seg(c.p, 0.972, 1))),
+    // fitFov на узком экране расширяет угол — в портрете исходный угол меньше, чтобы самолёт не терялся
+    fov: c.portrait ? lerp(18, 7, smooth(seg(c.p, 0.972, 1))) : lerp(40, 17, smooth(seg(c.p, 0.972, 1))),
   });
 
   const keys = [

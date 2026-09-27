@@ -3,6 +3,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { inspectable, systemUniforms } from './materials.js';
 import { SYSTEM_IDS } from './aircraft.js';
+import { optimizeTextures } from './texopt.js';
 
 /*
  * Загрузка A320_UAT.glb (Blender). Соглашения модели (см. ТЗ):
@@ -51,6 +52,16 @@ const ANCHOR_PART = {
   apu: 'FUS_Tailcone',
 };
 
+// Силовой набор внутри фюзеляжа виден только в разобранном виде: у собранного самолёта он не рисуется
+const INTERIOR = /^FUS_(Radome|Radar|Forward|Center|Aft|Tailcone)/;
+// Тень дают только внешние обводы: всё, что внутри обшивки, капота или шины, её не меняет
+const NO_SHADOW_MAT = /^(Interior_Structure|Liner_Acoustic|Lamp_Lens|Glass_Cockpit)$/;
+const NO_SHADOW_PART = /^(ENG_._(Core|Fan)|FUS_Radar)/;
+const partName = (o) => {
+  while (o && !o.name) o = o.parent;
+  return o?.name ?? '';
+};
+
 const LIGHT_COLORS = {
   LIGHT_Nav_R: [0.3, 8, 1.5],
   LIGHT_Nav_L: [8, 0.4, 0.3],
@@ -67,6 +78,7 @@ export async function loadAircraft(url, renderer, onProgress) {
   const src = gltf.scene.getObjectByName('A320');
   if (!src) throw new Error('A320 root node not found in ' + url);
   src.updateMatrixWorld(true);
+  optimizeTextures(src);
 
   const sysU = Object.fromEntries(SYSTEM_IDS.map((id) => [id, systemUniforms()]));
   const matCache = new Map();
@@ -96,6 +108,7 @@ export async function loadAircraft(url, renderer, onProgress) {
   pivot.add(body);
 
   const parts = {};
+  const interior = [];
   const systemParts = Object.fromEntries(SYSTEM_IDS.map((id) => [id, []]));
   for (const [name, [sys, ex, delay]] of Object.entries(PARTS)) {
     const obj = src.getObjectByName(name);
@@ -105,8 +118,12 @@ export async function loadAircraft(url, renderer, onProgress) {
     }
     obj.traverse((o) => {
       if (!o.isMesh) return;
+      const base = o.material.name;
+      const part = partName(o);
+      const wheelHub = /_Wheel_/.test(part) && base !== 'Rubber_Tyre';
+      if (base === 'Interior_Structure' && INTERIOR.test(part)) interior.push(o);
       o.material = mat(sys, o.material);
-      o.castShadow = true;
+      o.castShadow = !(NO_SHADOW_MAT.test(base) || NO_SHADOW_PART.test(part) || wheelHub);
       o.receiveShadow = true;
     });
     parts[name] = { obj, sys, base: obj.position.clone(), explode: new THREE.Vector3(...ex), delay };
@@ -188,6 +205,8 @@ export async function loadAircraft(url, renderer, onProgress) {
 
     setExplode(e) {
       explodeState = e;
+      const open = e > 0;
+      if (interior.length && interior[0].visible !== open) for (const o of interior) o.visible = open;
       for (const p of Object.values(parts)) {
         const k = easeInOut(clamp01((e - p.delay) / 0.75));
         p.obj.position.copy(p.base).addScaledVector(p.explode, k);

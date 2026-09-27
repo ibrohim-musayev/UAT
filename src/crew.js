@@ -1,7 +1,9 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { sysWindow, SYS_W, seg, smooth } from './timeline.js';
+import { optimizeTextures } from './texopt.js';
 
 /*
  * Техники UAT в ангаре. Модели и клипы — см. ТЗ «UAT Technician Characters».
@@ -103,7 +105,7 @@ const onLift = (sys, part, span, clip) => ({ sys, part, off: [0, span], clip, li
 // подъёмник перед деталью (воздухозаборник): работа на коленях, взгляд на уровне центра детали
 const onLiftFront = (sys, part, gap, clip) => ({ sys, part, off: [gap, 0], front: true, clip, lift: { H: LIFT_REST }, at: [0, 0], look: [0, 0] });
 const LINE_P = 0.84;
-const line = (i) => ({ ndc: [-0.2 + i * 0.1, -0.5], at: [0, 0], look: [0, 0] });
+const line = (i) => ({ ndc: [-0.2 + i * 0.1, -0.5], line: true, at: [0, 0], look: [0, 0] });
 const LINE = [0, 1, 2, 3, 4, 5].map(line);
 
 const CREW = [
@@ -206,23 +208,24 @@ function crewState(c, p) {
  * spec.ndc — под точкой экрана в кадре камеры, spec.part/off — рядом с деталью самолёта.
  * Даёт main.js: там камера и самолёт.
  */
-export async function loadCrew(scene, floorAt, { shadows = true } = {}) {
+export async function loadCrew(scene, floorAt, { shadows = true, lowPower = false, prepare } = {}) {
   const loader = new GLTFLoader();
   loader.setMeshoptDecoder(MeshoptDecoder);
-  const load = (name) => loader.loadAsync(BASE + name + '.glb');
+  // на телефонах — облегчённые модели (scripts/mobile-models.sh)
+  const load = (name) => loader.loadAsync(BASE + name + (lowPower ? '.mobile' : '') + '.glb');
 
   const propNames = [...new Set(Object.values(CLIP_PROP))];
   const [variants, props] = await Promise.all([
     Promise.all(CREW.map((c) => load(c.file))),
     Promise.all(propNames.map(load)),
   ]);
+  for (const g of [...variants, ...props]) optimizeTextures(g.scene);
   const clips = Object.fromEntries(variants[0].animations.map((a) => [a.name, a]));
   const propSrc = Object.fromEntries(propNames.map((n, i) => [n, props[i].scene]));
 
   const group = new THREE.Group();
   group.name = 'Crew';
   group.visible = false;
-  scene.add(group);
 
   const people = CREW.map((c, i) => {
     const root = variants[i].scene;
@@ -257,6 +260,7 @@ export async function loadCrew(scene, floorAt, { shadows = true } = {}) {
     }
     return { c, root, mixer, actions, propObj, clip: null, phase: i * 0.73 };
   });
+  const sphere = new THREE.Sphere(new THREE.Vector3(), 1.6);
 
   // ножничные подъёмники — по одному на каждую работу «с подъёмника»
   const lifts = CREW.flatMap((c) => c.jobs.filter((j) => j.lift)).map((j) => {
@@ -264,6 +268,10 @@ export async function loadCrew(scene, floorAt, { shadows = true } = {}) {
     group.add(lift.root);
     return { j, lift };
   });
+
+  // шейдеры и текстуры готовятся до появления в сцене — иначе первый кадр с техниками «замирает»
+  await prepare?.(group);
+  scene.add(group);
 
   function setClip(pp, name) {
     if (pp.clip === name) return;
@@ -303,7 +311,9 @@ export async function loadCrew(scene, floorAt, { shadows = true } = {}) {
         l.look.splice(0, 2, ...r.look);
       }
     },
-    update(p, dt) {
+    // frustum — пирамида видимости камеры: кто вне кадра, не рисуется и не анимируется
+    // (null, когда фигуры вне кадра могут отбрасывать в него тень)
+    update(p, dt, frustum = null) {
       const on = p > VISIBLE[0] && p < VISIBLE[1];
       group.visible = on;
       if (!on) return;
@@ -317,6 +327,8 @@ export async function loadCrew(scene, floorAt, { shadows = true } = {}) {
         const st = crewState(pp.c, p);
         pp.root.position.set(st.x, st.y, st.z);
         pp.root.rotation.y = st.yaw;
+        sphere.center.set(st.x, st.y + 1, st.z);
+        pp.root.visible = !frustum || frustum.intersectsSphere(sphere);
         setClip(pp, st.clip);
         const a = pp.actions[st.clip];
         if (/^Walk/.test(st.clip)) {
@@ -327,7 +339,7 @@ export async function loadCrew(scene, floorAt, { shadows = true } = {}) {
           a.timeScale = 0;
           a.time = Math.min(st.local, 0.999) * a.getClip().duration;
         } else a.timeScale = 1;
-        pp.mixer.update(dt);
+        if (pp.root.visible) pp.mixer.update(dt);
       }
     },
   };
@@ -342,57 +354,70 @@ function createScissorLift() {
   const D = 1.3; // ширина
   const BASE = 0.42;
   const root = new THREE.Group();
-  const mesh = (geo, mat, x, y, z) => {
-    const m = new THREE.Mesh(geo, mat);
-    m.position.set(x, y, z);
+  const meshes = [];
+  // детали одного материала сливаются: подъёмник — это 3 вызова отрисовки вместо 32
+  const merged = (geos, mat) => {
+    const m = new THREE.Mesh(mergeGeometries(geos), mat);
     m.castShadow = true;
     m.receiveShadow = true;
+    meshes.push(m);
     return m;
   };
-  root.add(mesh(new THREE.BoxGeometry(W, BASE - 0.12, D), dark, 0, 0.06 + (BASE - 0.12) / 2, 0));
+  const chassis = [new THREE.BoxGeometry(W, BASE - 0.12, D).translate(0, 0.06 + (BASE - 0.12) / 2, 0)];
   for (const x of [-W / 2 + 0.25, W / 2 - 0.25]) for (const z of [-D / 2 + 0.05, D / 2 - 0.05]) {
-    const wheel = mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.1, 16), dark, x, 0.12, z);
-    wheel.rotation.x = Math.PI / 2;
-    root.add(wheel);
+    chassis.push(new THREE.CylinderGeometry(0.12, 0.12, 0.1, 16).rotateX(Math.PI / 2).translate(x, 0.12, z));
   }
+  root.add(merged(chassis, dark));
   // площадка с ограждением
-  const deck = new THREE.Group();
-  deck.add(mesh(new THREE.BoxGeometry(W, 0.1, D), yellow, 0, -0.05, 0));
-  const post = new THREE.BoxGeometry(0.05, 1.1, 0.05);
-  for (const x of [-W / 2 + 0.03, 0, W / 2 - 0.03]) for (const z of [-D / 2 + 0.03, D / 2 - 0.03]) deck.add(mesh(post, yellow, x, 0.55, z));
+  const parts = [new THREE.BoxGeometry(W, 0.1, D).translate(0, -0.05, 0)];
+  for (const x of [-W / 2 + 0.03, 0, W / 2 - 0.03]) for (const z of [-D / 2 + 0.03, D / 2 - 0.03]) parts.push(new THREE.BoxGeometry(0.05, 1.1, 0.05).translate(x, 0.55, z));
   for (const h of [0.55, 1.1]) {
-    for (const z of [-D / 2 + 0.03, D / 2 - 0.03]) deck.add(mesh(new THREE.BoxGeometry(W, 0.05, 0.05), yellow, 0, h, z));
-    for (const x of [-W / 2 + 0.03, W / 2 - 0.03]) deck.add(mesh(new THREE.BoxGeometry(0.05, 0.05, D), yellow, x, h, 0));
+    for (const z of [-D / 2 + 0.03, D / 2 - 0.03]) parts.push(new THREE.BoxGeometry(W, 0.05, 0.05).translate(0, h, z));
+    for (const x of [-W / 2 + 0.03, W / 2 - 0.03]) parts.push(new THREE.BoxGeometry(0.05, 0.05, D).translate(x, h, 0));
   }
+  const deck = merged(parts, yellow);
   root.add(deck);
   // ножницы: 3 яруса по две пары перекрещенных рычагов
   const L = W - 0.3;
-  const armGeo = new THREE.BoxGeometry(L, 0.08, 0.06);
   const arms = [];
-  for (let i = 0; i < 3; i++) for (const side of [-1, 1]) for (const dir of [-1, 1]) {
-    const a = mesh(armGeo, yellow, 0, 0, side * (D / 2 - 0.15));
-    arms.push({ a, i, dir });
-    root.add(a);
-  }
+  for (let i = 0; i < 3; i++) for (const side of [-1, 1]) for (const dir of [-1, 1]) arms.push({ i, dir, z: side * (D / 2 - 0.15) });
+  const armMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(L, 0.08, 0.06), yellow, arms.length);
+  armMesh.castShadow = true;
+  armMesh.receiveShadow = true;
+  armMesh.frustumCulled = false; // габарит считается по исходной геометрии, без учёта положения рычагов
+  meshes.push(armMesh);
+  root.add(armMesh);
+  const m4 = new THREE.Matrix4();
+  const pos = new THREE.Vector3();
+  const quat = new THREE.Quaternion();
+  const one = new THREE.Vector3(1, 1, 1);
+  const Z = new THREE.Vector3(0, 0, 1);
+  let height = -1;
+  let opacity = -1;
   return {
     root,
     setOpacity(o) {
+      if (o === opacity) return;
+      opacity = o;
       root.visible = o > 0.01;
       for (const m of [yellow, dark]) {
         m.transparent = o < 1;
         m.opacity = o;
         m.depthWrite = o >= 1;
       }
-      root.traverse((c) => c.isMesh && (c.castShadow = o > 0.5));
+      for (const m of meshes) m.castShadow = o > 0.5;
     },
     setHeight(h) {
+      if (h === height) return;
+      height = h;
       deck.position.y = h;
       const hs = Math.max(0.02, (h - 0.1 - BASE) / 3);
       const ang = Math.asin(Math.min(0.99, hs / L));
-      for (const { a, i, dir } of arms) {
-        a.position.y = BASE + hs * (i + 0.5);
-        a.rotation.z = dir * ang;
-      }
+      arms.forEach(({ i, dir, z }, k) => {
+        m4.compose(pos.set(0, BASE + hs * (i + 0.5), z), quat.setFromAxisAngle(Z, dir * ang), one);
+        armMesh.setMatrixAt(k, m4);
+      });
+      armMesh.instanceMatrix.needsUpdate = true;
     },
   };
 }

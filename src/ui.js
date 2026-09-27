@@ -5,6 +5,19 @@ import { STAGES, seg, ease, smooth, P } from './timeline.js';
 const $ = (s, r = document) => r.querySelector(s);
 const fmt = (n) => Math.round(n).toLocaleString('ru-RU').replace(/,/g, ' ');
 
+// update() вызывается каждый кадр: в DOM пишем только то, что изменилось
+const memo = new WeakMap();
+const changed = (el, key, v) => {
+  let m = memo.get(el);
+  if (!m) memo.set(el, (m = {}));
+  if (m[key] === v) return false;
+  m[key] = v;
+  return true;
+};
+const setText = (el, v) => changed(el, 'text', v) && (el.textContent = v);
+const setClass = (el, name, on) => changed(el, 'c:' + name, !!on) && el.classList.toggle(name, !!on);
+const setScaleX = (el, k) => changed(el, 'sx', (k = Math.round(k * 1000) / 1000)) && (el.style.transform = `scaleX(${k})`);
+
 export function createUI() {
   /* Услуги, сертификаты, парк и цифры вставляются в index.html при сборке — см. staticContent.js */
 
@@ -50,6 +63,14 @@ export function createUI() {
   const pct = $('#cl-pct');
   const pctBar = $('#cl-bar');
 
+  const card = {
+    checks: $('.icard__checks', icard),
+    progress: $('.icard__progress i', icard),
+    status: $('.icard__status', icard),
+    items: [],
+  };
+  const root = document.documentElement;
+
   let current = -1;
   let ready = false;
 
@@ -62,7 +83,8 @@ export function createUI() {
     $('.icard__title', icard).textContent = s.title;
     $('.icard__svc', icard).textContent = s.service;
     $('.icard__desc', icard).textContent = s.desc;
-    $('.icard__checks', icard).innerHTML = s.checks.map((c) => `<li><span>${CHECK_SVG}</span>${c}</li>`).join('');
+    card.checks.innerHTML = s.checks.map((c) => `<li><span>${CHECK_SVG}</span>${c}</li>`).join('');
+    card.items = [...card.checks.children];
     icard.classList.add('is-in');
   }
 
@@ -82,9 +104,9 @@ export function createUI() {
     },
 
     telemetry({ alt, gs, status }) {
-      hud.alt.textContent = alt;
-      hud.gs.textContent = gs;
-      hud.st.textContent = status;
+      setText(hud.alt, alt);
+      setText(hud.gs, gs);
+      setText(hud.st, status);
     },
 
     update(p, phases, screen) {
@@ -111,12 +133,12 @@ export function createUI() {
       }
       if (idx >= 0) {
         const ph = phases[idx];
-        const items = icard.querySelectorAll('.icard__checks li');
-        items.forEach((li, k) => li.classList.toggle('is-ok', ph.scan > (k + 1) / (items.length + 0.6) || ph.checked > 0.5));
-        icard.classList.toggle('is-checked', ph.checked > 0.5);
-        icard.classList.toggle('is-scanning', ph.active > 0.3 && ph.checked < 0.5);
-        $('.icard__progress i', icard).style.transform = `scaleX(${ph.scan})`;
-        $('.icard__status', icard).textContent = ph.checked > 0.5 ? 'Проверено · замечаний нет' : ph.active > 0.3 ? `Сканирование · ${Math.round(ph.scan * 100)}%` : 'Подготовка';
+        const items = card.items;
+        items.forEach((li, k) => setClass(li, 'is-ok', ph.scan > (k + 1) / (items.length + 0.6) || ph.checked > 0.5));
+        setClass(icard, 'is-checked', ph.checked > 0.5);
+        setClass(icard, 'is-scanning', ph.active > 0.3 && ph.checked < 0.5);
+        setScaleX(card.progress, ph.scan);
+        setText(card.status, ph.checked > 0.5 ? 'Проверено · замечаний нет' : ph.active > 0.3 ? `Сканирование · ${Math.round(ph.scan * 100)}%` : 'Подготовка');
       }
 
       // чек-лист
@@ -128,9 +150,9 @@ export function createUI() {
         total += ph.scan * 0.85 + ph.checked * 0.15;
       });
       const pc = Math.round((total / phases.length) * 100);
-      pct.textContent = pc;
-      pctBar.style.transform = `scaleX(${pc / 100})`;
-      hud.chk.textContent = `${phases.filter((x) => x.checked > 0.5).length} / 8`;
+      setText(pct, pc);
+      setScaleX(pctBar, pc / 100);
+      setText(hud.chk, `${phases.filter((x) => x.checked > 0.5).length} / 8`);
 
       // 3D-метки
       const inInspect = p > P.explode[1] - 0.01 && p < P.assemble[0] + 0.005;
@@ -143,17 +165,18 @@ export function createUI() {
           else if (ph.checked > 0.5) state = 'mini';
         }
         if (el.dataset.state !== state) el.dataset.state = state;
-        if (state !== 'hidden') el.style.transform = `translate3d(${s.x.toFixed(1)}px, ${s.y.toFixed(1)}px, 0)`;
+        if (state !== 'hidden') {
+          const t = `translate3d(${s.x.toFixed(1)}px, ${s.y.toFixed(1)}px, 0)`;
+          if (changed(el, 'tr', t)) el.style.transform = t;
+        }
       });
 
       // счётчики
       const sk = ease(seg(p, 0.892, 0.915));
-      stats.forEach((b) => {
-        b.textContent = fmt(Number(b.dataset.to) * sk) + b.dataset.suffix;
-      });
+      if (changed(icard, 'stats', sk)) stats.forEach((b) => setText(b, fmt(Number(b.dataset.to) * sk) + b.dataset.suffix));
 
       // вуаль перехода
-      veil.style.opacity = 0;
+      if (changed(veil, 'o', 0)) veil.style.opacity = 0;
 
       // этапы
       let active = 0;
@@ -161,8 +184,8 @@ export function createUI() {
         if (p >= s.p - 0.001) active = i;
       });
       railBtns.forEach((b, i) => {
-        b.classList.toggle('is-active', i === active);
-        b.classList.toggle('is-past', i < active);
+        setClass(b, 'is-active', i === active);
+        setClass(b, 'is-past', i < active);
       });
 
       // статус HUD после интро
@@ -177,13 +200,13 @@ export function createUI() {
         if (p > P.final[1]) status = 'CRS ВЫДАН · ГОТОВ К ВЫЛЕТУ';
         if (p > P.push[0]) status = 'БУКСИРОВКА ИЗ АНГАРА';
         if (p > P.swap) status = 'ВЗЛЁТ · RWY 08';
-        hud.st.textContent = status;
-        hud.alt.textContent = p > P.swap ? '—' : '0 FT';
-        hud.gs.textContent = p > P.swap ? 'TAKEOFF' : p > 0.03 && p < 0.165 ? '12 KT' : '0 KT';
+        setText(hud.st, status);
+        setText(hud.alt, p > P.swap ? '—' : '0 FT');
+        setText(hud.gs, p > P.swap ? 'TAKEOFF' : p > 0.03 && p < 0.165 ? '12 KT' : '0 KT');
       }
-      document.documentElement.classList.toggle('is-hero', p < 0.028);
-      document.documentElement.classList.toggle('is-content', p > 0.995);
-      hud.root.classList.toggle('is-dim', p > 0.99 || (p > 0.214 && p < 0.872));
+      setClass(root, 'is-hero', p < 0.028);
+      setClass(root, 'is-content', p > 0.995);
+      setClass(hud.root, 'is-dim', p > 0.99 || (p > 0.214 && p < 0.872));
     },
   };
 }

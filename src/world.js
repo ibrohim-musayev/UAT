@@ -45,7 +45,9 @@ export function buildWorld(scene, renderer, { shadowSize = 4096, lowPower = fals
   sky.scale.setScalar(18000);
   applySky(sky);
   if (sky.material.uniforms.showSunDisc) sky.material.uniforms.showSunDisc.value = 0;
-  scene.add(sky);
+  // облака неподвижны, поэтому на телефонах небо считается один раз в кубическую карту:
+  // процедурный шейдер (рассеяние + 5 выборок шума) на каждый пиксель неба в каждом кадре — дорого
+  if (!(lowPower && bakeSky(scene, renderer, sky))) scene.add(sky);
 
   const pmrem = new THREE.PMREMGenerator(renderer);
   const envScene = new THREE.Scene();
@@ -113,13 +115,11 @@ export function buildWorld(scene, renderer, { shadowSize = 4096, lowPower = fals
   decal(T.thresholdTexture('26'), 40, 40, RWY.x1 - 22, 0, -Math.PI / 2);
   // зона приземления
   const tdz = new THREE.MeshStandardMaterial({ color: '#e6e8eb', roughness: 0.8, polygonOffset: true, polygonOffsetFactor: -3 });
+  const marks = batcher(scene);
   for (const x of [-420, -300]) {
-    for (const z of [-8, 8]) {
-      const m = new THREE.Mesh(new THREE.PlaneGeometry(45, 6).rotateX(-Math.PI / 2), tdz);
-      m.position.set(x, 0.05, z);
-      scene.add(m);
-    }
+    for (const z of [-8, 8]) marks.add(new THREE.PlaneGeometry(45, 6).rotateX(-Math.PI / 2).translate(x, 0.05, z), tdz, false, false);
   }
+  marks.flush();
 
   /* --- Рулёжка и перрон --- */
   const taxiMat = new THREE.MeshStandardMaterial({ map: T.asphaltTexture([1, 40]), roughness: 0.9, polygonOffset: true, polygonOffsetFactor: -2 });
@@ -192,13 +192,12 @@ export function buildWorld(scene, renderer, { shadowSize = 4096, lowPower = fals
   const mastMat = new THREE.MeshStandardMaterial({ color: '#8a9098', metalness: 0.1, roughness: 0.7 });
   const lampMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(6, 5, 3.2), toneMapped: false });
   // мачты стоят вне траекторий руления и буксировки (размах крыла ±18 м)
+  const masts = batcher(env);
   for (const [x, z] of [[-45, -100], [165, -100], [-55, -45], [205, -58], [380, -220], [660, -220]]) {
-    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.5, 30, 8), mastMat);
-    pole.position.set(x, 15, z);
-    const lamp = new THREE.Mesh(new THREE.BoxGeometry(4, 0.6, 1.2), lampMat);
-    lamp.position.set(x, 30, z);
-    env.add(pole, lamp);
+    masts.add(new THREE.CylinderGeometry(0.35, 0.5, 30, 8).translate(x, 15, z), mastMat, false, false);
+    masts.add(new THREE.BoxGeometry(4, 0.6, 1.2).translate(x, 30, z), lampMat, false, false);
   }
+  masts.flush();
   scene.add(env);
 
   /* --- Ангар --- */
@@ -222,6 +221,24 @@ export function buildWorld(scene, renderer, { shadowSize = 4096, lowPower = fals
   };
 }
 
+/* ---------------- Небо в кубическую карту ---------------- */
+function bakeSky(scene, renderer, sky) {
+  const gl = renderer.getContext();
+  // HDR-значения неба до тонмаппинга не помещаются в 8 бит; без float-буфера остаётся живой шейдер
+  if (!renderer.extensions.has('EXT_color_buffer_float') && !renderer.extensions.has('EXT_color_buffer_half_float')) return false;
+  const size = Math.min(1024, gl.getParameter(gl.MAX_CUBE_MAP_TEXTURE_SIZE));
+  const target = new THREE.WebGLCubeRenderTarget(size, { type: THREE.HalfFloatType, generateMipmaps: false, depthBuffer: false });
+  const bake = new THREE.Scene();
+  bake.add(sky);
+  const cam = new THREE.CubeCamera(1, 20000, target);
+  cam.update(renderer, bake);
+  bake.remove(sky);
+  sky.geometry.dispose();
+  sky.material.dispose();
+  scene.background = target.texture;
+  return true;
+}
+
 /* ---------------- Ангар ---------------- */
 function buildHangar(lowPower) {
   const { w, d, h, doorH } = HANGAR;
@@ -236,14 +253,9 @@ function buildHangar(lowPower) {
   const steel = new THREE.MeshStandardMaterial({ color: '#d3d8de', roughness: 0.55, metalness: 0.2 });
   const trim = new THREE.MeshStandardMaterial({ color: '#002d50', roughness: 0.4, metalness: 0.3 });
 
-  const box = (sx, sy, sz, x, y, z, m, shadow = true) => {
-    const b = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), m);
-    b.position.set(x, y, z);
-    b.castShadow = shadow;
-    b.receiveShadow = true;
-    g.add(b);
-    return b;
-  };
+  // неподвижные коробки копятся по материалу и в конце сливаются: один вызов отрисовки на материал
+  const statics = batcher(g);
+  const box = (sx, sy, sz, x, y, z, m, shadow = true) => statics.add(new THREE.BoxGeometry(sx, sy, sz).translate(x, y, z), m, shadow);
 
   // пол
   const floor = new THREE.Mesh(
@@ -372,7 +384,6 @@ function buildHangar(lowPower) {
   const yellow = new THREE.MeshStandardMaterial({ color: '#f0b400', roughness: 0.5, metalness: 0.3 });
   for (const [x, z] of [[-50, -30], [-50, 5], [50, -30], [50, 5]]) {
     // рабочие платформы-стремянки
-    const plat = new THREE.Group();
     const legs = [];
     for (const [lx, lz] of [[-2, -1.4], [2, -1.4], [-2, 1.4], [2, 1.4]]) {
       const l = new THREE.BoxGeometry(0.2, 7, 0.2);
@@ -390,12 +401,9 @@ function buildHangar(lowPower) {
       st.translate(2.8, k, -1.4 + k * 0.4);
       legs.push(st);
     }
-    const pm = new THREE.Mesh(mergeGeometries(legs), yellow);
-    pm.castShadow = true;
-    plat.add(pm);
-    plat.position.set(x, 0, z);
-    g.add(plat);
+    statics.add(mergeGeometries(legs).translate(x, 0, z), yellow, true, false);
   }
+  statics.flush();
 
   // ворота: 4 створки
   const doorTex = T.corrugatedTexture('#aeb8c4', [8, 6]);
@@ -590,6 +598,28 @@ function ridged(x, y) {
 }
 
 /* ---------------- Помощники ---------------- */
+
+// Копит неподвижную геометрию и сливает её по материалу (и признакам теней) в один меш
+function batcher(parent) {
+  const buckets = new Map();
+  return {
+    add(geo, material, cast = true, receive = true) {
+      const key = `${material.uuid}:${cast}:${receive}`;
+      if (!buckets.has(key)) buckets.set(key, { material, cast, receive, geos: [] });
+      buckets.get(key).geos.push(geo);
+    },
+    flush() {
+      for (const { material, cast, receive, geos } of buckets.values()) {
+        const merged = mergeGeometries(geos);
+        const m = new THREE.Mesh(merged, material);
+        m.castShadow = cast;
+        m.receiveShadow = receive;
+        parent.add(m);
+      }
+      buckets.clear();
+    },
+  };
+}
 
 // Лента вдоль кривой (рулёжка, осевая линия)
 function ribbon(curve, u0, u1, width, y, material, steps = 220) {

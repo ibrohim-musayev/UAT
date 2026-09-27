@@ -405,6 +405,14 @@ html.is-ready .hero > *:nth-child(4) { animation-delay: 0.4s; }
   .skip { bottom: 16px; }
 }
 
+/* Телефоны и планшеты: без размытия фона. Под панелями — 3D-canvas, он меняется каждый кадр,
+   и браузер каждый кадр заново размывает его под каждой панелью. Вместо стекла — более плотная подложка. */
+@media (max-width: 760px), (pointer: coarse) {
+  :root { --glass: rgba(255, 255, 255, 0.86); }
+  .nav { background: rgba(250, 250, 248, 0.9); }
+  .nav, .rail, .hud, .skip, .card, .scroll-cue, .plabel__card, .badge__note { backdrop-filter: none; -webkit-backdrop-filter: none; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; }
   .hero > * { opacity: 1; transform: none; }
