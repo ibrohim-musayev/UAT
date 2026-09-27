@@ -31,7 +31,7 @@ const SKY = {
   cloudElevation: 0.45,
 };
 
-export function buildWorld(scene, renderer, { shadowSize = 4096 } = {}) {
+export function buildWorld(scene, renderer, { shadowSize = 4096, lowPower = false } = {}) {
   RectAreaLightUniformsLib.init();
 
   /* --- Небо и солнце --- */
@@ -202,7 +202,7 @@ export function buildWorld(scene, renderer, { shadowSize = 4096 } = {}) {
   scene.add(env);
 
   /* --- Ангар --- */
-  const hangar = buildHangar();
+  const hangar = buildHangar(lowPower);
   hangar.group.position.set(HANGAR.x, 0, HANGAR.z);
   scene.add(hangar.group);
 
@@ -223,7 +223,7 @@ export function buildWorld(scene, renderer, { shadowSize = 4096 } = {}) {
 }
 
 /* ---------------- Ангар ---------------- */
-function buildHangar() {
+function buildHangar(lowPower) {
   const { w, d, h, doorH } = HANGAR;
   const g = new THREE.Group();
   const hw = w / 2;
@@ -335,10 +335,11 @@ function buildHangar() {
   g.add(panels);
 
   // прямоугольные источники — мягкий «студийный» свет
+  // на телефонах ряд из трёх панелей — один источник той же общей площади: каждый RectAreaLight считается в каждом пикселе
   const areas = [];
-  for (const x of [-34, 0, 34]) {
+  for (const x of lowPower ? [0] : [-34, 0, 34]) {
     for (const z of [-24, 24]) {
-      const a = new THREE.RectAreaLight('#f2f6ff', 0, 28, 24);
+      const a = new THREE.RectAreaLight('#f2f6ff', 0, lowPower ? 84 : 28, 24);
       a.position.set(x, yb - 1, z);
       a.rotation.x = -Math.PI / 2;
       g.add(a);

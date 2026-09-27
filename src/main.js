@@ -37,7 +37,10 @@ const isMobile = matchMedia('(max-width: 760px)').matches;
 const lowPower = isMobile || matchMedia('(pointer: coarse)').matches;
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const canvas = document.getElementById('webgl');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
+// телефоны рисуют сразу в canvas со встроенным MSAA: без HalfFloat-буфера и лишнего полноэкранного прохода.
+// bloom всё равно выключен, а тонмаппинг тот же ACES — делается в шейдерах материалов, а не в OutputPass
+const direct = lowPower;
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: direct, powerPreference: 'high-performance' });
 // размер берём у самого canvas (CSS 100lvh), а не у окна: панели Safari меняют innerHeight при скролле
 const vp = { w: canvas.clientWidth || innerWidth, h: canvas.clientHeight || innerHeight };
 const PR = Math.min(devicePixelRatio, lowPower ? 1.25 : 1.5);
@@ -51,22 +54,28 @@ renderer.shadowMap.type = lowPower ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(30, vp.w / vp.h, 0.3, 30000);
 
-const rt = new THREE.WebGLRenderTarget(vp.w * PR, vp.h * PR, { type: THREE.HalfFloatType, samples: isMobile ? 2 : 4 });
-const composer = new EffectComposer(renderer, rt);
-composer.setSize(vp.w, vp.h); // размер RT = CSS × PR (не вызывать setPixelRatio — удвоит масштаб)
-composer.addPass(new RenderPass(scene, camera));
-const bloom = new UnrealBloomPass(new THREE.Vector2(vp.w, vp.h), 0.22, 0.12, 3.6);
-// в дневной сцене bloom размывает яркое небо в дымку — огни рисуются спрайтами-ореолами
-bloom.enabled = false;
-composer.addPass(bloom);
-composer.addPass(new OutputPass());
+let composer = null;
+let bloom = null;
+if (!direct) {
+  const rt = new THREE.WebGLRenderTarget(vp.w * PR, vp.h * PR, { type: THREE.HalfFloatType, samples: 4 });
+  composer = new EffectComposer(renderer, rt);
+  composer.setSize(vp.w, vp.h); // размер RT = CSS × PR (не вызывать setPixelRatio — удвоит масштаб)
+  composer.addPass(new RenderPass(scene, camera));
+  bloom = new UnrealBloomPass(new THREE.Vector2(vp.w, vp.h), 0.22, 0.12, 3.6);
+  // в дневной сцене bloom размывает яркое небо в дымку — огни рисуются спрайтами-ореолами
+  bloom.enabled = false;
+  composer.addPass(bloom);
+  composer.addPass(new OutputPass());
+}
+const render = () => (composer ? composer.render() : renderer.render(scene, camera));
 
 /* ---------- Сцена ---------- */
-const world = buildWorld(scene, renderer, { shadowSize: lowPower ? 2048 : 4096 });
+const world = buildWorld(scene, renderer, { shadowSize: lowPower ? 2048 : 4096, lowPower });
 ui.loader(0.5);
 let ac;
 try {
-  ac = await loadAircraft('/models/A320_UAT.glb', renderer, (k) => ui.loader(0.5 + k * 0.2));
+  // на телефонах — та же модель, упрощённая meshoptimizer'ом (~−30% треугольников, отклонение < 0.1% габарита)
+  ac = await loadAircraft(lowPower ? '/models/A320_UAT.mobile.glb' : '/models/A320_UAT.glb', renderer, (k) => ui.loader(0.5 + k * 0.2));
 } catch (err) {
   // запасной вариант — процедурная модель
   console.error('[aircraft] GLB failed, using procedural model', err);
@@ -450,7 +459,7 @@ function frame(now) {
   // когда контент полностью перекрывает экран — не рендерим 3D
   if (scrollY < track.offsetHeight + 40) {
     adaptQuality(clock.elapsedTime); // до отрисовки: смена размера буфера очищает canvas
-    composer.render();
+    render();
   }
 }
 
@@ -471,7 +480,7 @@ function adaptQuality(t) {
 function setQuality(pr) {
   curPR = pr;
   renderer.setPixelRatio(pr);
-  composer.setPixelRatio(pr);
+  composer?.setPixelRatio(pr);
 }
 
 /* ---------- Навигация ---------- */
@@ -515,12 +524,14 @@ addEventListener('resize', () => {
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
   renderer.setSize(w, h, false);
-  composer.setSize(w, h);
-  bloom.resolution.set(w, h);
+  composer?.setSize(w, h);
+  bloom?.resolution.set(w, h);
   crewLayout = true;
 });
 
 /* ---------- Старт ---------- */
+// без OutputPass HDR-огни (toneMapped: false) обрезались бы до белого — тонмаппим их в шейдере, как это делал проход
+if (direct) scene.traverse((o) => o.material && [].concat(o.material).forEach((m) => (m.toneMapped = true)));
 // начальный кадр интро для прогрева шейдеров
 applyPlane({ pos: TL.introState(0).pos, yaw: 0, pitch: 0.05, flaps: 1, gear: 1 });
 setCamera(TL.introState(0).cam, 0, false);
