@@ -1,20 +1,12 @@
-import { SYSTEMS, STATS, SERVICES, CERTS, FLEET } from './data.js';
+import { SYSTEMS } from './data.js';
+import { CHECK_SVG } from './staticContent.js';
 import { STAGES, seg, ease, smooth, P } from './timeline.js';
 
 const $ = (s, r = document) => r.querySelector(s);
-const CHECK_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.2 4.2L19 7" /></svg>';
 const fmt = (n) => Math.round(n).toLocaleString('ru-RU').replace(/,/g, ' ');
 
 export function createUI() {
-  /* ---------- Статичный контент ---------- */
-  $('#services-grid').innerHTML = SERVICES.map(
-    ([t, d], i) => `<li class="svc"><span class="svc__n">${String(i + 1).padStart(2, '0')}</span><h3>${t}</h3><p>${d}</p></li>`
-  ).join('');
-  $('#certs-grid').innerHTML = CERTS.map(([t, d]) => `<div class="cert"><span class="cert__seal">${CHECK_SVG}</span><b>${t}</b><small>${d}</small></div>`).join('');
-  $('#fleet').innerHTML = FLEET.map((f) => `<li>${f}</li>`).join('');
-  $('#stats-grid').innerHTML = STATS.map(
-    (s) => `<div class="stat"><b data-to="${s.value}" data-suffix="${s.suffix}">0</b><span>${s.label}</span></div>`
-  ).join('');
+  /* Услуги, сертификаты, парк и цифры вставляются в index.html при сборке — см. staticContent.js */
 
   // этапы
   const rail = $('#rail');

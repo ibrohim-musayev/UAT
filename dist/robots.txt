@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://uzairwaystech.vercel.app/sitemap.xml

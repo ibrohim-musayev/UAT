@@ -229,6 +229,8 @@ const axisWorld = new THREE.Vector3();
 const phases = SYSTEM_IDS.map(() => ({ l: 0, active: 0, scan: 0, checked: 0, flash: 0 }));
 const labelScreen = SYSTEM_IDS.slice(0, 7).map(() => ({ x: 0, y: 0, visible: false }));
 const allParts = Object.values(ac.parts).map((p) => p.obj);
+// основные стойки: имена из GLB (GEAR_Main_*) или процедурной модели (mainGear*)
+const MAIN_GEAR = ['GEAR_Main_R', 'GEAR_Main_L', 'mainGearR', 'mainGearL'].map((n) => ac.parts[n]?.obj).filter(Boolean);
 
 function applyPlane(st) {
   ac.root.position.copy(st.pos);
@@ -296,14 +298,14 @@ function runIntro(dt) {
   if (!touched && introT >= TL.INTRO.TA) {
     touched = true;
     shake = 0.25;
-    for (const id of ['mainGearR', 'mainGearL']) {
-      ac.parts[id].obj.getWorldPosition(tmp);
+    for (const g of MAIN_GEAR) {
+      g.getWorldPosition(tmp);
       tmp.y = 0.4;
       smoke.burst(tmp, 14, new THREE.Vector3(18, 0, 0));
     }
   }
-  if (touched && introT < TL.INTRO.TA + 1.2 && Math.random() < 0.35) {
-    ac.parts.mainGearR.obj.getWorldPosition(tmp);
+  if (touched && MAIN_GEAR[0] && introT < TL.INTRO.TA + 1.2 && Math.random() < 0.35) {
+    MAIN_GEAR[0].getWorldPosition(tmp);
     tmp.y = 0.4;
     smoke.burst(tmp, 1, new THREE.Vector3(10, 0, 0));
   }

@@ -1,0 +1,17 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "redirects": [
+    {
+      "source": "/:path*",
+      "has": [{ "type": "host", "value": "uzairways-technics.vercel.app" }],
+      "destination": "https://uzairwaystech.vercel.app/:path*",
+      "permanent": true
+    },
+    {
+      "source": "/:path*",
+      "has": [{ "type": "host", "value": "uzairways-technics-ibrohim-musayevs-projects.vercel.app" }],
+      "destination": "https://uzairwaystech.vercel.app/:path*",
+      "permanent": true
+    }
+  ]
+}
