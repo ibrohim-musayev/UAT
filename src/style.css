@@ -36,7 +36,8 @@ h1, h2, h3 { font-family: var(--f-cond); font-weight: 600; letter-spacing: -0.01
 p { margin: 0; }
 ol, ul { margin: 0; padding: 0; list-style: none; }
 
-#webgl { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; z-index: 0; }
+/* 100lvh — «большой» вьюпорт: не меняется, когда в Safari прячется/появляется адресная строка */
+#webgl { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; height: 100lvh; display: block; z-index: 0; }
 #veil { display: none; }
 #track { position: relative; height: 2600vh; z-index: -1; }
 

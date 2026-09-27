@@ -38,22 +38,24 @@ const lowPower = isMobile || matchMedia('(pointer: coarse)').matches;
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const canvas = document.getElementById('webgl');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
+// размер берём у самого canvas (CSS 100lvh), а не у окна: панели Safari меняют innerHeight при скролле
+const vp = { w: canvas.clientWidth || innerWidth, h: canvas.clientHeight || innerHeight };
 const PR = Math.min(devicePixelRatio, lowPower ? 1.25 : 1.5);
 renderer.setPixelRatio(PR);
-renderer.setSize(innerWidth, innerHeight);
+renderer.setSize(vp.w, vp.h, false); // false — стиль задаёт CSS, иначе высота застынет в px
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 0.4;
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = lowPower ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
 
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(30, innerWidth / innerHeight, 0.3, 30000);
+const camera = new THREE.PerspectiveCamera(30, vp.w / vp.h, 0.3, 30000);
 
-const rt = new THREE.WebGLRenderTarget(innerWidth * PR, innerHeight * PR, { type: THREE.HalfFloatType, samples: isMobile ? 2 : 4 });
+const rt = new THREE.WebGLRenderTarget(vp.w * PR, vp.h * PR, { type: THREE.HalfFloatType, samples: isMobile ? 2 : 4 });
 const composer = new EffectComposer(renderer, rt);
-composer.setSize(innerWidth, innerHeight); // размер RT = CSS × PR (не вызывать setPixelRatio — удвоит масштаб)
+composer.setSize(vp.w, vp.h); // размер RT = CSS × PR (не вызывать setPixelRatio — удвоит масштаб)
 composer.addPass(new RenderPass(scene, camera));
-const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.22, 0.12, 3.6);
+const bloom = new UnrealBloomPass(new THREE.Vector2(vp.w, vp.h), 0.22, 0.12, 3.6);
 // в дневной сцене bloom размывает яркое небо в дымку — огни рисуются спрайтами-ореолами
 bloom.enabled = false;
 composer.addPass(bloom);
@@ -170,7 +172,7 @@ function floorAt(p, sys, spec, avoid = []) {
   probeCam.position.copy(v.pos);
   probeCam.lookAt(v.tgt);
   probeCam.fov = fitFov(v.fov);
-  probeCam.aspect = innerWidth / innerHeight;
+  probeCam.aspect = vp.w / vp.h;
   probeCam.updateProjectionMatrix();
   probeCam.updateMatrixWorld(true);
   // кандидаты — сетка в нижней части кадра между карточками, ближайшие к заданной точке первыми
@@ -205,7 +207,7 @@ loadCrew(scene, floorAt, { shadows: !lowPower })
 const lenis = new Lenis({ lerp: 0.075, wheelMultiplier: 0.85, touchMultiplier: 1.3, autoRaf: false });
 lenis.stop();
 const track = document.getElementById('track');
-const maxScroll = () => Math.max(1, track.offsetHeight - innerHeight);
+const maxScroll = () => Math.max(1, track.offsetHeight - vp.h);
 
 /* ---------- Состояние ---------- */
 let mode = reducedMotion ? 'scroll' : 'intro';
@@ -244,7 +246,7 @@ function applyPlane(st) {
 
 const REF_ASPECT = 1.6;
 function fitFov(fov) {
-  const aspect = innerWidth / innerHeight;
+  const aspect = vp.w / vp.h;
   if (aspect >= REF_ASPECT) return fov;
   const h = 2 * Math.atan((Math.tan(THREE.MathUtils.degToRad(fov) / 2) * REF_ASPECT) / aspect);
   return Math.min(THREE.MathUtils.radToDeg(h), 78);
@@ -407,7 +409,7 @@ function runScroll(p, dt) {
   scene.environmentIntensity = THREE.MathUtils.lerp(0.6, 0.28, inside);
 
   // камера
-  const portrait = innerWidth / innerHeight < 1;
+  const portrait = vp.w / vp.h < 1;
   const view = cameraAt(p, { plane: st.pos.clone(), p, portrait });
   // на телефоне карточки занимают низ экрана — поднимаем объект в кадре
   if (portrait) view.tgt.y -= view.pos.distanceTo(view.tgt) * 0.14;
@@ -420,8 +422,8 @@ function runScroll(p, dt) {
     tmp.project(camera);
     const L = labelScreen[i];
     L.visible = tmp.z < 1 && Math.abs(tmp.x) < 1.1 && Math.abs(tmp.y) < 1.1;
-    L.x = (tmp.x * 0.5 + 0.5) * innerWidth;
-    L.y = (-tmp.y * 0.5 + 0.5) * innerHeight;
+    L.x = (tmp.x * 0.5 + 0.5) * vp.w;
+    L.y = (-tmp.y * 0.5 + 0.5) * vp.h;
   }
   ui.update(p, phases, labelScreen);
 }
@@ -445,13 +447,14 @@ function frame(now) {
 
   // когда контент полностью перекрывает экран — не рендерим 3D
   if (scrollY < track.offsetHeight + 40) {
+    adaptQuality(clock.elapsedTime); // до отрисовки: смена размера буфера очищает canvas
     composer.render();
-    adaptQuality(clock.elapsedTime);
   }
 }
 
 /* ---------- Адаптивное качество ---------- */
-// Если кадры медленные (слабый телефон), понижаем разрешение рендера шагами; когда запас есть — возвращаем.
+// Если кадры медленные (слабый телефон), понижаем разрешение рендера шагами. Только вниз:
+// качели «вниз-вверх» давали заметные перестройки буфера.
 const MIN_PR = Math.min(PR, 0.75);
 let curPR = PR;
 let qFrames = 0;
@@ -462,7 +465,6 @@ function adaptQuality(t) {
   const avg = (t - qStart) / (qFrames - 1);
   qFrames = 0;
   if (avg > 1 / 45 && curPR > MIN_PR) setQuality(Math.max(MIN_PR, curPR - 0.15));
-  else if (avg < 1 / 58 && curPR < PR) setQuality(Math.min(PR, curPR + 0.1));
 }
 function setQuality(pr) {
   curPR = pr;
@@ -502,11 +504,17 @@ ui.rail.addEventListener('click', (e) => {
 });
 
 addEventListener('resize', () => {
-  camera.aspect = innerWidth / innerHeight;
+  const w = canvas.clientWidth;
+  const h = canvas.clientHeight;
+  // панели браузера не меняют размер canvas (100lvh) — перестраиваем буферы только при реальной смене
+  if (!w || !h || (w === vp.w && h === vp.h)) return;
+  vp.w = w;
+  vp.h = h;
+  camera.aspect = w / h;
   camera.updateProjectionMatrix();
-  renderer.setSize(innerWidth, innerHeight);
-  composer.setSize(innerWidth, innerHeight);
-  bloom.resolution.set(innerWidth, innerHeight);
+  renderer.setSize(w, h, false);
+  composer.setSize(w, h);
+  bloom.resolution.set(w, h);
   crewLayout = true;
 });
 
