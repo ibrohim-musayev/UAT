@@ -31,7 +31,7 @@ const SKY = {
   cloudElevation: 0.45,
 };
 
-export function buildWorld(scene, renderer) {
+export function buildWorld(scene, renderer, { shadowSize = 4096 } = {}) {
   RectAreaLightUniformsLib.init();
 
   /* --- Небо и солнце --- */
@@ -66,7 +66,7 @@ export function buildWorld(scene, renderer) {
   /* --- Свет --- */
   const sun = new THREE.DirectionalLight('#fff3e2', 2.6);
   sun.castShadow = true;
-  sun.shadow.mapSize.set(4096, 4096);
+  sun.shadow.mapSize.set(shadowSize, shadowSize);
   const sc = sun.shadow.camera;
   sc.left = -115; sc.right = 115; sc.top = 115; sc.bottom = -115; sc.near = 1; sc.far = 600;
   sun.shadow.bias = -0.0004;

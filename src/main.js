@@ -33,16 +33,18 @@ ui.loader(0.25);
 
 /* ---------- Рендерер ---------- */
 const isMobile = matchMedia('(max-width: 760px)').matches;
+// телефоны и планшеты: облегчённые тени и разрешение, дальше — адаптивное качество по FPS
+const lowPower = isMobile || matchMedia('(pointer: coarse)').matches;
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const canvas = document.getElementById('webgl');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
-const PR = Math.min(devicePixelRatio, 1.5);
+const PR = Math.min(devicePixelRatio, lowPower ? 1.25 : 1.5);
 renderer.setPixelRatio(PR);
 renderer.setSize(innerWidth, innerHeight);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 0.4;
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.type = lowPower ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(30, innerWidth / innerHeight, 0.3, 30000);
@@ -58,7 +60,7 @@ composer.addPass(bloom);
 composer.addPass(new OutputPass());
 
 /* ---------- Сцена ---------- */
-const world = buildWorld(scene, renderer);
+const world = buildWorld(scene, renderer, { shadowSize: lowPower ? 2048 : 4096 });
 ui.loader(0.5);
 let ac;
 try {
@@ -192,7 +194,7 @@ function floorAt(p, sys, spec, avoid = []) {
   const look = sys >= 0 ? ac.anchorWorld(SYSTEM_IDS[sys], new THREE.Vector3()) : v.pos;
   return { at: [hit.x, hit.z], look: [look.x, look.z] };
 }
-loadCrew(scene, floorAt)
+loadCrew(scene, floorAt, { shadows: !lowPower })
   .then((c) => {
     crew = c;
     crewLayout = true;
@@ -442,7 +444,30 @@ function frame(now) {
   ac.updateLights(time);
 
   // когда контент полностью перекрывает экран — не рендерим 3D
-  if (scrollY < track.offsetHeight + 40) composer.render();
+  if (scrollY < track.offsetHeight + 40) {
+    composer.render();
+    adaptQuality(clock.elapsedTime);
+  }
+}
+
+/* ---------- Адаптивное качество ---------- */
+// Если кадры медленные (слабый телефон), понижаем разрешение рендера шагами; когда запас есть — возвращаем.
+const MIN_PR = Math.min(PR, 0.75);
+let curPR = PR;
+let qFrames = 0;
+let qStart = 0;
+function adaptQuality(t) {
+  if (qFrames === 0) qStart = t;
+  if (++qFrames < 60) return;
+  const avg = (t - qStart) / (qFrames - 1);
+  qFrames = 0;
+  if (avg > 1 / 45 && curPR > MIN_PR) setQuality(Math.max(MIN_PR, curPR - 0.15));
+  else if (avg < 1 / 58 && curPR < PR) setQuality(Math.min(PR, curPR + 0.1));
+}
+function setQuality(pr) {
+  curPR = pr;
+  renderer.setPixelRatio(pr);
+  composer.setPixelRatio(pr);
 }
 
 /* ---------- Навигация ---------- */

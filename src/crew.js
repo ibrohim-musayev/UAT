@@ -206,7 +206,7 @@ function crewState(c, p) {
  * spec.ndc — под точкой экрана в кадре камеры, spec.part/off — рядом с деталью самолёта.
  * Даёт main.js: там камера и самолёт.
  */
-export async function loadCrew(scene, floorAt) {
+export async function loadCrew(scene, floorAt, { shadows = true } = {}) {
   const loader = new GLTFLoader();
   loader.setMeshoptDecoder(MeshoptDecoder);
   const load = (name) => loader.loadAsync(BASE + name + '.glb');
@@ -228,7 +228,7 @@ export async function loadCrew(scene, floorAt) {
     const root = variants[i].scene;
     root.traverse((o) => {
       if (o.isMesh) {
-        o.castShadow = true;
+        o.castShadow = shadows; // на слабых устройствах тени персонажей отключены: скиннинг в тень удваивает работу
         o.receiveShadow = true;
         o.frustumCulled = false; // bbox скина считается по позе покоя
       }
@@ -250,7 +250,7 @@ export async function loadCrew(scene, floorAt) {
       const socket = root.getObjectByName(PROP_HAND[n] || 'Socket_R');
       if (!socket) continue;
       const obj = propSrc[n].clone();
-      obj.traverse((o) => o.isMesh && (o.castShadow = true));
+      obj.traverse((o) => o.isMesh && (o.castShadow = shadows));
       obj.visible = false;
       socket.add(obj);
       propObj[n] = obj;
