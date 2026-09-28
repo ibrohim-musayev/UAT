@@ -50,8 +50,6 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 0.4;
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = lowPower ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
-// карта теней перерисовывается только когда в ней что-то меняется (см. shadowDirty): это второй проход по всей геометрии
-renderer.shadowMap.autoUpdate = false;
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(30, vp.w / vp.h, 0.3, 30000);
@@ -177,12 +175,9 @@ function floorAt(p, sys, spec, avoid = []) {
     }
     console.warn('[crew] missing part', spec.part);
   }
-  let [nx, ny] = spec.ndc ?? [0, -0.5];
-  // в портрете низ кадра занят карточкой — строй встаёт выше
-  if (spec.line && isPortrait()) ny = -0.12;
+  const [nx, ny] = spec.ndc ?? [0, -0.5];
   collectOccluders();
-  // строй у самолёта ставится по настоящему кадру: в портрете у него свой ракурс
-  const v = spec.line ? viewAt(p, st.pos.clone(), isPortrait()) : cameraAt(p, { plane: st.pos.clone(), p, portrait: false });
+  const v = cameraAt(p, { plane: st.pos.clone(), p, portrait: false });
   probeCam.position.copy(v.pos);
   probeCam.lookAt(v.tgt);
   probeCam.fov = fitFov(v.fov);
@@ -210,12 +205,10 @@ function floorAt(p, sys, spec, avoid = []) {
   const look = sys >= 0 ? ac.anchorWorld(SYSTEM_IDS[sys], new THREE.Vector3()) : v.pos;
   return { at: [hit.x, hit.z], look: [look.x, look.z] };
 }
-const crewShadows = !lowPower;
-loadCrew(scene, floorAt, { shadows: crewShadows, lowPower, prepare })
+loadCrew(scene, floorAt, { shadows: !lowPower })
   .then((c) => {
     crew = c;
     crewLayout = true;
-    shadowHold = 2;
   })
   .catch((err) => console.error('[crew] failed to load', err));
 
@@ -262,19 +255,6 @@ function applyPlane(st) {
   ac.root.updateMatrixWorld(true);
 }
 
-const isPortrait = () => vp.w / vp.h < 1;
-function viewAt(p, planePos, portrait) {
-  const view = cameraAt(p, { plane: planePos, p, portrait });
-  return portrait ? TL.liftTarget(view) : view;
-}
-const viewFrustum = new THREE.Frustum();
-const viewProj = new THREE.Matrix4();
-let shadowDirty = true;
-let shadowHold = 2; // кадры, в которых тень обновляется безусловно (старт, загрузка техников, смена размера)
-let shadowP = -1;
-let wasOpen = true;
-let camMoving = false;
-
 const REF_ASPECT = 1.6;
 function fitFov(fov) {
   const aspect = vp.w / vp.h;
@@ -296,7 +276,6 @@ function setCamera(view, dt, damp) {
     camTgt.lerp(view.tgt, k);
     camFov += (view.fov - camFov) * k;
   }
-  camMoving = camPos.distanceToSquared(view.pos) > 1e-4 || camTgt.distanceToSquared(view.tgt) > 1e-4 || Math.abs(camFov - view.fov) > 0.01;
   camera.position.copy(camPos);
   if (shake > 0) {
     camera.position.x += (Math.random() - 0.5) * shake;
@@ -320,8 +299,7 @@ function setCamera(view, dt, damp) {
 /* ---------- Интро: посадка ---------- */
 function runIntro(dt) {
   introT += dt * introSpeed;
-  const s = TL.introState(Math.min(introT, TL.INTRO.total), isPortrait());
-  shadowDirty = true;
+  const s = TL.introState(Math.min(introT, TL.INTRO.total));
   fanAngle += dt * (s.phase === 'approach' || s.phase === 'flare' ? 30 : 16);
   applyPlane({ pos: s.pos, yaw: 0, pitch: s.pitch, roll: s.roll, dist: s.groundDist, flaps: 1, gear: 1 });
   ac.landingLight.intensity = 2500;
@@ -425,6 +403,7 @@ function runScroll(p, dt) {
   ac.landingLight.intensity = 2500 * st.landingLight;
 
   updateSystems(p);
+  crew?.update(p, dt);
 
   // ангар
   const doors = Math.max(TL.smooth(TL.seg(p, ...TL.P.doorsOpen)) * (1 - TL.smooth(TL.seg(p, ...TL.P.doorsClose))), TL.smooth(TL.seg(p, ...TL.P.doorsOpen2)));
@@ -441,24 +420,11 @@ function runScroll(p, dt) {
   scene.environmentIntensity = THREE.MathUtils.lerp(0.6, 0.28, inside);
 
   // камера
-  setCamera(viewAt(p, st.pos.clone(), isPortrait()), dt, true);
-
-  // Тени даёт только солнце. При закрытых воротах ангар — закрытая коробка: внутри всё в тени крыши,
-  // и карта теней не меняется, что бы ни двигалось. Снаружи она обновляется, пока что-то движется.
-  const open = doors > 0.001;
-  const crewOn = !!crew && crew.group.visible;
-  if ((open || wasOpen) && (p !== shadowP || (crewOn && crewShadows))) shadowDirty = true;
-  wasOpen = open;
-
-  // техники: кто вне кадра — не рисуется (если его тень не может попасть в кадр)
-  if (crew) {
-    let frustum = null;
-    if (!crewShadows || !open) {
-      camera.updateMatrixWorld();
-      frustum = viewFrustum.setFromProjectionMatrix(viewProj.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
-    }
-    crew.update(p, dt, frustum);
-  }
+  const portrait = vp.w / vp.h < 1;
+  const view = cameraAt(p, { plane: st.pos.clone(), p, portrait });
+  // на телефоне карточки занимают низ экрана — поднимаем объект в кадре
+  if (portrait) view.tgt.y -= view.pos.distanceTo(view.tgt) * 0.14;
+  setCamera(view, dt, true);
 
   // экранные координаты меток
   for (let i = 0; i < 7; i++) {
@@ -475,32 +441,14 @@ function runScroll(p, dt) {
 
 /* ---------- Цикл ---------- */
 const clock = new THREE.Clock();
-const IDLE_AFTER = 400; // мс без движения, после которых телефон переходит на 30 кадров/с
-const IDLE_FRAME = 1000 / 30 - 3;
-let lastScrollY = -1;
-let lastActive = 0;
-let lastFrame = 0;
-let lastP = -1;
 function frame(now) {
-  lenis.raf(now);
-  const scrollY = lenis.scroll;
-  const p = TL.clamp01(scrollY / maxScroll());
-  // когда контент полностью перекрывает экран — 3D не рисуется и не считается
-  const hidden = scrollY >= track.offsetHeight + 40;
-
-  // Пока ничего не движется (пользователь читает), телефону хватает 30 кадров/с:
-  // меньше нагрев — позже троттлинг процессора. Скролл сразу возвращает полную частоту.
-  if (mode === 'intro' || scrollY !== lastScrollY || camMoving) lastActive = now;
-  lastScrollY = scrollY;
-  const idle = lowPower && now - lastActive > IDLE_AFTER;
-  if (idle && now - lastFrame < IDLE_FRAME) return;
-  lastFrame = now;
-
   const dt = Math.min(clock.getDelta(), 1 / 20);
   time += dt;
   globalUniforms.uTime.value = time;
-  if (hidden && p === lastP && mode !== 'intro') return;
-  lastP = p;
+  lenis.raf(now);
+
+  const scrollY = lenis.scroll;
+  const p = TL.clamp01(scrollY / maxScroll());
 
   if (mode === 'intro') runIntro(dt);
   else runScroll(p, dt);
@@ -508,16 +456,11 @@ function frame(now) {
   smoke.update(dt);
   ac.updateLights(time);
 
-  if (hidden) return;
-  if (idle) qFrames = 0; // кадры с ограничением частоты не говорят о скорости устройства
-  else adaptQuality(clock.elapsedTime); // до отрисовки: смена размера буфера очищает canvas
-  if (shadowDirty || shadowHold > 0) {
-    renderer.shadowMap.needsUpdate = true;
-    shadowDirty = false;
-    shadowP = p;
-    if (shadowHold > 0) shadowHold--;
+  // когда контент полностью перекрывает экран — не рендерим 3D
+  if (scrollY < track.offsetHeight + 40) {
+    adaptQuality(clock.elapsedTime); // до отрисовки: смена размера буфера очищает canvas
+    render();
   }
-  render();
 }
 
 /* ---------- Адаптивное качество ---------- */
@@ -584,44 +527,20 @@ addEventListener('resize', () => {
   composer?.setSize(w, h);
   bloom?.resolution.set(w, h);
   crewLayout = true;
-  shadowHold = 2;
-  lastActive = performance.now();
 });
 
 /* ---------- Старт ---------- */
-// Подготовка до первого показа: шейдеры компилируются, текстуры загружаются в видеопамять.
-// Иначе всё это происходит в том кадре, где объект впервые попал в камеру, — и кадр «замирает».
-const TEX_SLOTS = ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'aoMap', 'emissiveMap', 'alphaMap'];
-async function prepare(obj) {
-  const seen = new Set();
-  obj.traverse((o) => {
-    for (const m of o.material ? [].concat(o.material) : []) {
-      // без OutputPass HDR-огни (toneMapped: false) обрезались бы до белого — тонмаппим их в шейдере, как это делал проход
-      if (direct) m.toneMapped = true;
-      for (const k of TEX_SLOTS) {
-        const t = m[k];
-        if (!t || seen.has(t) || !t.image) continue;
-        seen.add(t);
-        renderer.initTexture(t);
-      }
-    }
-  });
-  try {
-    // программы зависят от того, куда идёт рендер: на десктопе это буфер композера, а не экран
-    const target = renderer.getRenderTarget();
-    renderer.setRenderTarget(composer ? composer.readBuffer : null);
-    const ready = renderer.compileAsync(obj, camera, scene);
-    renderer.setRenderTarget(target);
-    await ready;
-  } catch (e) {
-    /* no-op */
-  }
-}
+// без OutputPass HDR-огни (toneMapped: false) обрезались бы до белого — тонмаппим их в шейдере, как это делал проход
+if (direct) scene.traverse((o) => o.material && [].concat(o.material).forEach((m) => (m.toneMapped = true)));
 // начальный кадр интро для прогрева шейдеров
 applyPlane({ pos: TL.introState(0).pos, yaw: 0, pitch: 0.05, flaps: 1, gear: 1 });
-setCamera(TL.introState(0, isPortrait()).cam, 0, false);
+setCamera(TL.introState(0).cam, 0, false);
 ui.loader(0.85);
-await prepare(scene);
+try {
+  await renderer.compileAsync(scene, camera);
+} catch (e) {
+  /* no-op */
+}
 ui.loader(1);
 setTimeout(() => ui.hideLoader(), 350);
 if (mode === 'scroll') endIntro();
